@@ -8,4 +8,6 @@ Planned responsibilities:
 - REST API data fetching.
 - SSE change notifications and state refresh.
 
-Frontend application code starts in PW-002.
+Day02 provides a Vite React health page. Run `npm install && npm run dev` with
+Node.js 22; the page calls the API `/health/ready` endpoint and displays the
+PostgreSQL and Redis dependency states.
