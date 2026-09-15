@@ -1,0 +1,839 @@
+openapi: 3.0.3
+info:
+  title: PulseWatch API
+  version: 0.1.0
+  license:
+    name: Proprietary
+    url: https://github.com/lixiangling-com/pulsewatch
+  description: |
+    PulseWatch monitors public HTTP and HTTPS endpoints. This document is the
+    single HTTP contract shared by the Go API and the Web client.
+servers:
+  - url: /api/v1
+    description: Versioned business API
+security: []
+tags:
+  - name: health
+    description: Process liveness and dependency readiness probes.
+  - name: auth
+    description: Account and session contracts reserved for Day04.
+  - name: monitors
+    description: Monitor configuration and history contracts reserved for later days.
+  - name: notifications
+    description: Notification inbox contracts reserved for Day10.
+  - name: events
+    description: Server-sent change hints reserved for Day11.
+paths:
+  /health/live:
+    servers:
+      - url: /
+    get:
+      tags: [health]
+      operationId: healthLive
+      summary: Process liveness probe
+      responses:
+        '200':
+          description: The API process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/ready:
+    servers:
+      - url: /
+    get:
+      tags: [health]
+      operationId: healthReady
+      summary: Dependency readiness probe
+      responses:
+        '200':
+          description: The API and required dependencies are ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: One or more required dependencies are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Register a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered and a session was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Create a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      summary: Rotate a refresh token
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: A new access token and refresh cookie were issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Revoke the current refresh token
+      security:
+        - refreshCookie: []
+      responses:
+        '204':
+          description: Session revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: Get the authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /monitors:
+    get:
+      tags: [monitors]
+      operationId: listMonitors
+      summary: List the current user's monitors
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of monitors.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitorListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [monitors]
+      operationId: createMonitor
+      summary: Create a monitor
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMonitorRequest'
+      responses:
+        '201':
+          description: Monitor created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /monitors/{id}:
+    parameters:
+      - $ref: '#/components/parameters/MonitorID'
+    get:
+      tags: [monitors]
+      operationId: getMonitor
+      summary: Get one monitor owned by the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Monitor details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [monitors]
+      operationId: updateMonitor
+      summary: Update a monitor
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMonitorRequest'
+      responses:
+        '200':
+          description: Monitor updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [monitors]
+      operationId: deleteMonitor
+      summary: Soft-delete a monitor
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Monitor deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /monitors/{id}/pause:
+    parameters:
+      - $ref: '#/components/parameters/MonitorID'
+    post:
+      tags: [monitors]
+      operationId: pauseMonitor
+      summary: Pause a monitor
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Monitor paused or already paused.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /monitors/{id}/resume:
+    parameters:
+      - $ref: '#/components/parameters/MonitorID'
+    post:
+      tags: [monitors]
+      operationId: resumeMonitor
+      summary: Resume a monitor
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Monitor resumed or already active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /monitors/{id}/checks:
+    parameters:
+      - $ref: '#/components/parameters/MonitorID'
+    get:
+      tags: [monitors]
+      operationId: listMonitorChecks
+      summary: List recent checks for a monitor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of check runs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckRunListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /monitors/{id}/incidents:
+    parameters:
+      - $ref: '#/components/parameters/MonitorID'
+    get:
+      tags: [monitors]
+      operationId: listMonitorIncidents
+      summary: List incidents for a monitor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of incidents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: List the current user's notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of notifications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /notifications/{id}/read:
+    parameters:
+      - $ref: '#/components/parameters/NotificationID'
+    patch:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: Mark a notification as read
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Notification marked as read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /events:
+    get:
+      tags: [events]
+      operationId: streamEvents
+      summary: Stream resource change hints
+      description: Events contain hints only; clients re-fetch authoritative data from REST.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Server-sent event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: "event: monitor.changed\ndata: {\"type\":\"monitor.changed\",\"resource_id\":\"00000000-0000-0000-0000-000000000001\",\"occurred_at\":\"2026-09-14T10:00:00Z\"}\n\n"
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+  parameters:
+    MonitorID:
+      name: id
+      in: path
+      required: true
+      description: Monitor UUID
+      schema:
+        type: string
+        format: uuid
+    NotificationID:
+      name: id
+      in: path
+      required: true
+      description: Notification UUID
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+  responses:
+    Unauthorized:
+      description: Authentication is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found or not owned by the current user.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Request conflicts with an existing resource or state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: Request failed field validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    HealthDependency:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [up, down]
+        latency_ms:
+          type: integer
+          minimum: 0
+        error_code:
+          type: string
+    HealthResponse:
+      type: object
+      required: [status, service, timestamp, request_id, dependencies]
+      properties:
+        status:
+          type: string
+          enum: [ok, ready, not_ready]
+        service:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+        dependencies:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/HealthDependency'
+    ErrorBody:
+      type: object
+      required: [code, message, field_errors, request_id]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        field_errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        request_id:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+    LoginRequest:
+      $ref: '#/components/schemas/RegisterRequest'
+    User:
+      type: object
+      required: [id, email, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      required: [access_token, expires_in, user]
+      properties:
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+          description: Access token lifetime in seconds.
+          example: 900
+        user:
+          $ref: '#/components/schemas/User'
+    CreateMonitorRequest:
+      type: object
+      required: [name, url, interval_minutes, expected_status]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+          maxLength: 2048
+        interval_minutes:
+          type: integer
+          enum: [1, 5, 10]
+        expected_status:
+          type: integer
+          minimum: 100
+          maximum: 599
+    UpdateMonitorRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+          maxLength: 2048
+        interval_minutes:
+          type: integer
+          enum: [1, 5, 10]
+        expected_status:
+          type: integer
+          minimum: 100
+          maximum: 599
+    Monitor:
+      type: object
+      required: [id, user_id, name, url, interval_minutes, expected_status, status, config_version, next_check_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        interval_minutes:
+          type: integer
+          enum: [1, 5, 10]
+        expected_status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        status:
+          type: string
+          enum: [pending, up, confirming_down, down, confirming_up, paused]
+        config_version:
+          type: integer
+          minimum: 1
+        next_check_at:
+          type: string
+          format: date-time
+        last_checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_latency_ms:
+          type: integer
+          minimum: 0
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CheckRun:
+      type: object
+      required: [id, monitor_id, config_version, status, scheduled_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        monitor_id:
+          type: string
+          format: uuid
+        config_version:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled]
+        scheduled_at:
+          type: string
+          format: date-time
+        enqueued_at:
+          type: string
+          format: date-time
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        status_code:
+          type: integer
+          minimum: 100
+          maximum: 599
+          nullable: true
+        latency_ms:
+          type: integer
+          minimum: 0
+          nullable: true
+        error_code:
+          type: string
+          nullable: true
+        error_summary:
+          type: string
+          maxLength: 255
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    Incident:
+      type: object
+      required: [id, monitor_id, opened_at, error_code, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        monitor_id:
+          type: string
+          format: uuid
+        opened_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_code:
+          type: string
+        error_summary:
+          type: string
+          maxLength: 255
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Notification:
+      type: object
+      required: [id, user_id, monitor_id, incident_id, type, dedupe_key, title, body, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        monitor_id:
+          type: string
+          format: uuid
+        incident_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [incident_opened, incident_resolved]
+        dedupe_key:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [pending, queued, sent, failed]
+        queued_at:
+          type: string
+          format: date-time
+          nullable: true
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_code:
+          type: string
+          nullable: true
+        error_summary:
+          type: string
+          maxLength: 255
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Event:
+      type: object
+      required: [type, resource_id, occurred_at]
+      properties:
+        type:
+          type: string
+          enum: [monitor.changed, notification.changed]
+        resource_id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+    PaginationMeta:
+      type: object
+      required: [page, page_size, total]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+    MonitorListResponse:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Monitor'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    CheckRunListResponse:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckRun'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    IncidentListResponse:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incident'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    NotificationListResponse:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'

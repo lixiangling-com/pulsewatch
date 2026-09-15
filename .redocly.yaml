@@ -1,0 +1,7 @@
+extends:
+  - recommended
+
+# Health probes intentionally expose only their success and dependency-failure
+# responses; a generic 4XX response is not part of this operational contract.
+rules:
+  operation-4xx-response: off

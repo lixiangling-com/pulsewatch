@@ -12,6 +12,30 @@ visual design work.
 The detailed architecture, health contract, lifecycle rules, and acceptance
 matrix are in [docs/day02-architecture.md](docs/day02-architecture.md).
 
+## Day03 contract and data layer
+
+Day03 adds the single OpenAPI source at [api/openapi.yaml](api/openapi.yaml),
+the six-table PostgreSQL migration, and generated Go/TypeScript/database
+types. The contract describes future v1 auth, monitor, history, notification,
+and event APIs; those business handlers are intentionally not implemented yet.
+
+See [docs/day03-contract-data.md](docs/day03-contract-data.md) and
+[docs/toolchain.md](docs/toolchain.md) for the design, fixed tool versions, and
+generation commands.
+
+### Day03 verification
+
+```bash
+npx --yes @redocly/cli@1.34.5 lint api/openapi.yaml
+/tmp/pulsewatch-tools/oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml
+(cd server && /tmp/pulsewatch-tools/sqlc generate && /tmp/pulsewatch-tools/sqlc compile)
+(cd web && npx openapi-typescript ../api/openapi.yaml -o src/generated/api-types.ts)
+```
+
+Day03 does not yet provide registration, login, monitor CRUD, queue consumers,
+HTTP checks, or email delivery. PostgreSQL remains the source of truth; Redis
+is still only a future transport layer.
+
 ### Prerequisites
 
 - Docker Desktop with Compose
