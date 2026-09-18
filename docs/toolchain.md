@@ -12,6 +12,11 @@ Day03 使用固定版本生成和校验工具。生成文件只能由 OpenAPI、
 | Node.js | 22.22.3 | Web 构建 |
 | npm | 10.9.8 | Web 依赖管理 |
 | Redocly CLI | 1.34.5 | OpenAPI 校验（通过 npx 固定版本执行） |
+| React Hook Form | 7.54.2 | 认证表单状态与提交控制 |
+| Zod | 3.24.2 | 浏览器端输入校验 |
+| Tailwind CSS | 4.0.6 | Web 控制台样式 |
+| Vitest | 3.0.5 | Web 单元测试 |
+| MSW | 2.7.0 | Web HTTP 请求模拟 |
 
 ## 生成命令
 

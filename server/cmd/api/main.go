@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lixiangling-com/pulsewatch/server/internal/auth"
 	"github.com/lixiangling-com/pulsewatch/server/internal/health"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/config"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/database"
@@ -28,6 +29,10 @@ func main() {
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
+		slog.Error("configuration failed", slog.String("error", err.Error()))
+		return err
+	}
+	if err := cfg.ValidateAPI(); err != nil {
 		slog.Error("configuration failed", slog.String("error", err.Error()))
 		return err
 	}
@@ -50,6 +55,20 @@ func run() error {
 	healthHandler := health.NewHandler(checker)
 	router.GET("/health/live", healthHandler.Live)
 	router.GET("/health/ready", healthHandler.Ready)
+
+	tokenManager, err := auth.NewTokenManager(cfg.JWTAccessSecret, cfg.JWTIssuer)
+	if err != nil {
+		logger.Error("auth initialization failed", slog.String("error", "invalid token configuration"))
+		return err
+	}
+	authService := auth.NewService(auth.NewRepository(postgres), tokenManager)
+	authHandler := auth.NewHandler(authService, cfg.IsDevelopment())
+	authRoutes := router.Group("/api/v1/auth")
+	authRoutes.POST("/register", authHandler.Register)
+	authRoutes.POST("/login", authHandler.Login)
+	authRoutes.POST("/refresh", authHandler.Refresh)
+	authRoutes.POST("/logout", authHandler.Logout)
+	authRoutes.GET("/me", tokenManager.RequireUser(), authHandler.Me)
 
 	server := httpx.NewServer(cfg.HTTPAddr, router)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

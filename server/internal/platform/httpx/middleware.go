@@ -34,7 +34,7 @@ func CORS(origins []string) gin.HandlerFunc {
 		origin := c.GetHeader("Origin")
 		if origin != "" {
 			if _, ok := allowed[origin]; !ok {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "origin_not_allowed"})
+				WriteError(c, http.StatusForbidden, "ORIGIN_NOT_ALLOWED", "来源不被允许", nil)
 				return
 			}
 			c.Header("Access-Control-Allow-Origin", origin)
@@ -67,14 +67,12 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 }
 
 func Recovery(logger *slog.Logger) gin.HandlerFunc {
-	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
+	// The panic value is intentionally not logged: it can carry request data
+	// such as credentials. Only the request id is recorded.
+	return gin.CustomRecovery(func(c *gin.Context, _ any) {
 		requestID, _ := c.Get(RequestIDKey)
-		_ = recovered
 		logger.Error("panic recovered", slog.Any("request_id", requestID))
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"error":      "internal_error",
-			"request_id": requestID,
-		})
+		WriteError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "服务暂时不可用", nil)
 	})
 }
 

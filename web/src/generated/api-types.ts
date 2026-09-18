@@ -47,7 +47,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register a user */
+        /** Register a user and create a session */
         post: operations["register"];
         delete?: never;
         options?: never;
@@ -64,7 +64,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create a session */
+        /** Create a session with a short-lived access token and refresh cookie */
         post: operations["login"];
         delete?: never;
         options?: never;
@@ -81,7 +81,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Rotate a refresh token */
+        /** Rotate the refresh cookie and issue a new access token */
         post: operations["refreshSession"];
         delete?: never;
         options?: never;
@@ -98,7 +98,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revoke the current refresh token */
+        /** Revoke the current refresh token and clear its cookie */
         post: operations["logout"];
         delete?: never;
         options?: never;
@@ -335,7 +335,10 @@ export interface components {
         RegisterRequest: {
             /** Format: email */
             email: string;
-            /** Format: password */
+            /**
+             * Format: password
+             * @description Password length is measured in UTF-8 bytes because bcrypt has a 72-byte input limit.
+             */
             password: string;
         };
         LoginRequest: components["schemas"]["RegisterRequest"];
