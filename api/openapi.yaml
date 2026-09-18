@@ -62,7 +62,7 @@ paths:
     post:
       tags: [auth]
       operationId: register
-      summary: Register a user
+      summary: Register a user and create a session
       requestBody:
         required: true
         content:
@@ -84,7 +84,7 @@ paths:
     post:
       tags: [auth]
       operationId: login
-      summary: Create a session
+      summary: Create a session with a short-lived access token and refresh cookie
       requestBody:
         required: true
         content:
@@ -106,7 +106,7 @@ paths:
     post:
       tags: [auth]
       operationId: refreshSession
-      summary: Rotate a refresh token
+      summary: Rotate the refresh cookie and issue a new access token
       security:
         - refreshCookie: []
       responses:
@@ -122,7 +122,7 @@ paths:
     post:
       tags: [auth]
       operationId: logout
-      summary: Revoke the current refresh token
+      summary: Revoke the current refresh token and clear its cookie
       security:
         - refreshCookie: []
       responses:
@@ -524,7 +524,8 @@ components:
           type: string
           format: password
           minLength: 8
-          maxLength: 128
+          maxLength: 72
+          description: Password length is measured in UTF-8 bytes because bcrypt has a 72-byte input limit.
     LoginRequest:
       $ref: '#/components/schemas/RegisterRequest'
     User:

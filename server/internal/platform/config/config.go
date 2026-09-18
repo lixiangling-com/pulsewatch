@@ -22,6 +22,8 @@ type Config struct {
 	CORSAllowedOrigins []string
 	HealthTimeout      time.Duration
 	ShutdownTimeout    time.Duration
+	JWTAccessSecret    string
+	JWTIssuer          string
 }
 
 // Load reads environment variables and validates the values that Day02 uses.
@@ -55,6 +57,8 @@ func load(get lookup) (Config, error) {
 		return Config{}, err
 	}
 	cfg.RedisPassword, _ = get("REDIS_PASSWORD")
+	cfg.JWTAccessSecret, _ = get("JWT_ACCESS_SECRET")
+	cfg.JWTIssuer = envOr(get, "JWT_ISSUER", "pulsewatch")
 
 	origins := envOr(get, "CORS_ALLOWED_ORIGINS", "http://localhost:5173")
 	cfg.CORSAllowedOrigins = splitOrigins(origins)
@@ -76,6 +80,21 @@ func load(get lookup) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// ValidateAPI validates settings that only the public API process needs.
+func (c Config) ValidateAPI() error {
+	if len(c.JWTAccessSecret) < 32 {
+		return invalid("JWT_ACCESS_SECRET")
+	}
+	if strings.TrimSpace(c.JWTIssuer) == "" {
+		return invalid("JWT_ISSUER")
+	}
+	return nil
+}
+
+func (c Config) IsDevelopment() bool {
+	return c.Environment == "development"
 }
 
 func envOr(get lookup, key, fallback string) string {

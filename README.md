@@ -36,6 +36,20 @@ Day03 does not yet provide registration, login, monitor CRUD, queue consumers,
 HTTP checks, or email delivery. PostgreSQL remains the source of truth; Redis
 is still only a future transport layer.
 
+## Day04 + Day05 authentication
+
+Day04 and Day05 implement the first complete authentication loop: register,
+login, refresh-page session recovery, Account access, and logout. The API
+exposes only the five `/api/v1/auth/*` routes needed for that loop. Access
+JWTs stay in browser memory for 15 minutes; the seven-day refresh credential is
+an HttpOnly Cookie and its SHA-256 digest, never its raw value, is stored in
+PostgreSQL.
+
+The implementation deliberately does not include monitor CRUD, email
+verification, password recovery, OAuth, or worker jobs. See
+[docs/day04-05-auth.md](docs/day04-05-auth.md) for the authentication flow,
+configuration, local exercise steps, and acceptance commands.
+
 ### Prerequisites
 
 - Docker Desktop with Compose
@@ -44,6 +58,10 @@ is still only a future transport layer.
 
 Copy `.env.example` to `.env` when you need to override the local defaults.
 Never commit `.env` or real credentials.
+
+For the API, `JWT_ACCESS_SECRET` is mandatory and must be at least 32 bytes.
+The development sample is intentionally local-only; replace it outside local
+development. `JWT_ISSUER` defaults to `pulsewatch`.
 
 ### Start Day02 dependencies
 

@@ -15,8 +15,9 @@ func lookupFrom(values map[string]string) lookup {
 
 func TestLoadDefaultsAndValues(t *testing.T) {
 	get := lookupFrom(map[string]string{
-		"DATABASE_URL": "postgres://pulsewatch:secret@localhost:5432/pulsewatch",
-		"REDIS_ADDR":   "localhost:6379",
+		"DATABASE_URL":      "postgres://pulsewatch:secret@localhost:5432/pulsewatch",
+		"REDIS_ADDR":        "localhost:6379",
+		"JWT_ACCESS_SECRET": "this-is-a-local-development-secret-at-least-32-bytes",
 	})
 
 	cfg, err := load(get)
@@ -31,6 +32,25 @@ func TestLoadDefaultsAndValues(t *testing.T) {
 	}
 	if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "http://localhost:5173" {
 		t.Fatalf("unexpected origins: %#v", cfg.CORSAllowedOrigins)
+	}
+}
+
+func TestValidateAPIRequiresLongJWTSecretWithoutLeakingIt(t *testing.T) {
+	base := map[string]string{
+		"DATABASE_URL": "postgres://pulsewatch:secret@localhost:5432/pulsewatch",
+		"REDIS_ADDR":   "localhost:6379",
+	}
+	cfg, err := load(lookupFrom(base))
+	if err != nil {
+		t.Fatalf("load() error = %v", err)
+	}
+	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "JWT_ACCESS_SECRET") {
+		t.Fatalf("expected JWT_ACCESS_SECRET error, got %v", err)
+	}
+	base["JWT_ACCESS_SECRET"] = "this-is-a-local-development-secret-at-least-32-bytes"
+	cfg, err = load(lookupFrom(base))
+	if err != nil || cfg.ValidateAPI() != nil {
+		t.Fatalf("valid API configuration rejected: load=%v validate=%v", err, cfg.ValidateAPI())
 	}
 }
 
