@@ -26,15 +26,11 @@ func (q *Queries) CountMonitorsByUser(ctx context.Context, userID pgtype.UUID) (
 
 const createMonitor = `-- name: CreateMonitor :one
 INSERT INTO monitors (
-    id, user_id, name, url, interval_minutes, expected_status,
-    status, config_version, next_check_at
+    id, user_id, name, url, interval_minutes, expected_status
 )
 VALUES (
     $1, $2, $3, $4,
-    $5, $6,
-    COALESCE($7, 'pending'),
-    COALESCE($8, 1),
-    COALESCE($9, now())
+    $5, $6
 )
 RETURNING id, user_id, name, url, interval_minutes, expected_status, status,
     config_version, next_check_at, last_checked_at, last_latency_ms,
@@ -48,9 +44,6 @@ type CreateMonitorParams struct {
 	Url             string      `json:"url"`
 	IntervalMinutes int32       `json:"interval_minutes"`
 	ExpectedStatus  int32       `json:"expected_status"`
-	Status          interface{} `json:"status"`
-	ConfigVersion   interface{} `json:"config_version"`
-	NextCheckAt     interface{} `json:"next_check_at"`
 }
 
 func (q *Queries) CreateMonitor(ctx context.Context, arg CreateMonitorParams) (Monitor, error) {
@@ -61,9 +54,6 @@ func (q *Queries) CreateMonitor(ctx context.Context, arg CreateMonitorParams) (M
 		arg.Url,
 		arg.IntervalMinutes,
 		arg.ExpectedStatus,
-		arg.Status,
-		arg.ConfigVersion,
-		arg.NextCheckAt,
 	)
 	var i Monitor
 	err := row.Scan(
@@ -100,6 +90,42 @@ type GetMonitorByIDAndUserParams struct {
 
 func (q *Queries) GetMonitorByIDAndUser(ctx context.Context, arg GetMonitorByIDAndUserParams) (Monitor, error) {
 	row := q.db.QueryRow(ctx, getMonitorByIDAndUser, arg.ID, arg.UserID)
+	var i Monitor
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Url,
+		&i.IntervalMinutes,
+		&i.ExpectedStatus,
+		&i.Status,
+		&i.ConfigVersion,
+		&i.NextCheckAt,
+		&i.LastCheckedAt,
+		&i.LastLatencyMs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getMonitorByIDAndUserForUpdate = `-- name: GetMonitorByIDAndUserForUpdate :one
+SELECT id, user_id, name, url, interval_minutes, expected_status, status,
+    config_version, next_check_at, last_checked_at, last_latency_ms,
+    created_at, updated_at, deleted_at
+FROM monitors
+WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type GetMonitorByIDAndUserForUpdateParams struct {
+	ID     pgtype.UUID `json:"id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetMonitorByIDAndUserForUpdate(ctx context.Context, arg GetMonitorByIDAndUserForUpdateParams) (Monitor, error) {
+	row := q.db.QueryRow(ctx, getMonitorByIDAndUserForUpdate, arg.ID, arg.UserID)
 	var i Monitor
 	err := row.Scan(
 		&i.ID,
@@ -169,6 +195,20 @@ func (q *Queries) ListMonitorsByUser(ctx context.Context, arg ListMonitorsByUser
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockUserForMonitorCreate = `-- name: LockUserForMonitorCreate :one
+SELECT id
+FROM users
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockUserForMonitorCreate(ctx context.Context, userID pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, lockUserForMonitorCreate, userID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const softDeleteMonitor = `-- name: SoftDeleteMonitor :execrows

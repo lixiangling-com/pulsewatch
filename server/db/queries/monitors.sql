@@ -1,18 +1,20 @@
 -- name: CreateMonitor :one
 INSERT INTO monitors (
-    id, user_id, name, url, interval_minutes, expected_status,
-    status, config_version, next_check_at
+    id, user_id, name, url, interval_minutes, expected_status
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(user_id), sqlc.arg(name), sqlc.arg(url),
-    sqlc.arg(interval_minutes), sqlc.arg(expected_status),
-    COALESCE(sqlc.arg(status), 'pending'),
-    COALESCE(sqlc.arg(config_version), 1),
-    COALESCE(sqlc.arg(next_check_at), now())
+    sqlc.arg(interval_minutes), sqlc.arg(expected_status)
 )
 RETURNING id, user_id, name, url, interval_minutes, expected_status, status,
     config_version, next_check_at, last_checked_at, last_latency_ms,
     created_at, updated_at, deleted_at;
+
+-- name: LockUserForMonitorCreate :one
+SELECT id
+FROM users
+WHERE id = sqlc.arg(user_id)
+FOR UPDATE;
 
 -- name: GetMonitorByIDAndUser :one
 SELECT id, user_id, name, url, interval_minutes, expected_status, status,
@@ -20,6 +22,14 @@ SELECT id, user_id, name, url, interval_minutes, expected_status, status,
     created_at, updated_at, deleted_at
 FROM monitors
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND deleted_at IS NULL;
+
+-- name: GetMonitorByIDAndUserForUpdate :one
+SELECT id, user_id, name, url, interval_minutes, expected_status, status,
+    config_version, next_check_at, last_checked_at, last_latency_ms,
+    created_at, updated_at, deleted_at
+FROM monitors
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND deleted_at IS NULL
+FOR UPDATE;
 
 -- name: CountMonitorsByUser :one
 SELECT count(*)::bigint

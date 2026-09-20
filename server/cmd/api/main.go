@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lixiangling-com/pulsewatch/server/internal/auth"
 	"github.com/lixiangling-com/pulsewatch/server/internal/health"
+	"github.com/lixiangling-com/pulsewatch/server/internal/monitor"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/config"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/database"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/httpx"
@@ -69,6 +70,11 @@ func run() error {
 	authRoutes.POST("/refresh", authHandler.Refresh)
 	authRoutes.POST("/logout", authHandler.Logout)
 	authRoutes.GET("/me", tokenManager.RequireUser(), authHandler.Me)
+
+	monitorService := monitor.NewService(monitor.NewRepository(postgres))
+	monitorHandler := monitor.NewHandler(monitorService, logger)
+	monitorRoutes := router.Group("/api/v1/monitors", tokenManager.RequireUser())
+	monitor.RegisterRoutes(monitorRoutes, monitorHandler)
 
 	server := httpx.NewServer(cfg.HTTPAddr, router)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

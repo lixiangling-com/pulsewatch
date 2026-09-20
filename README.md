@@ -98,3 +98,16 @@ The Worker probe is intentionally bound to `127.0.0.1:8081`.
 cd server && go test ./...
 cd ../web && npm run build
 ```
+
+## Day06 monitor lifecycle API
+
+Day06 adds the authenticated `/api/v1/monitors` lifecycle: list, create,
+details, partial update, pause, resume, and soft delete. Every repository query
+is owner-scoped; non-owned and deleted monitors both return the same 404. The
+API enforces field rules, the 20-monitor limit, configuration versions, and
+idempotent pause/resume transitions.
+
+Scheduling, check history, incidents, and connection-time SSRF protection are
+intentionally deferred to later days. See
+[docs/day06-monitor-api.md](docs/day06-monitor-api.md) for the fixed behavior
+and acceptance commands.

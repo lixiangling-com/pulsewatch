@@ -165,6 +165,8 @@ paths:
                 $ref: '#/components/schemas/MonitorListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
     post:
       tags: [monitors]
       operationId: createMonitor
@@ -186,6 +188,8 @@ paths:
                 $ref: '#/components/schemas/Monitor'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
   /monitors/{id}:
@@ -558,6 +562,7 @@ components:
           $ref: '#/components/schemas/User'
     CreateMonitorRequest:
       type: object
+      additionalProperties: false
       required: [name, url, interval_minutes, expected_status]
       properties:
         name:
@@ -567,7 +572,7 @@ components:
         url:
           type: string
           format: uri
-          pattern: '^https?://'
+          pattern: '^[hH][tT][tT][pP][sS]?://'
           maxLength: 2048
         interval_minutes:
           type: integer
@@ -578,6 +583,7 @@ components:
           maximum: 599
     UpdateMonitorRequest:
       type: object
+      additionalProperties: false
       minProperties: 1
       properties:
         name:
@@ -587,7 +593,7 @@ components:
         url:
           type: string
           format: uri
-          pattern: '^https?://'
+          pattern: '^[hH][tT][tT][pP][sS]?://'
           maxLength: 2048
         interval_minutes:
           type: integer
