@@ -30,7 +30,7 @@ export function CredentialsForm({ mode }: CredentialsFormProps) {
         ? await register({ email: values.email, password: values.password })
         : await login({ email: values.email, password: values.password })
       establishSession(result)
-      navigate('/', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (error) {
       if (error instanceof ApiError) {
         const fields = error.body?.error?.field_errors

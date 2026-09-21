@@ -5,6 +5,7 @@ import { LoginPage } from '../features/auth/pages/LoginPage'
 import { ProtectedRoute } from '../features/auth/ProtectedRoute'
 import { RegisterPage } from '../features/auth/pages/RegisterPage'
 import { HealthPage } from '../features/health/pages/HealthPage'
+import { DashboardPage } from '../features/monitors/pages/DashboardPage'
 
 export default function App() {
   return (
@@ -14,9 +15,10 @@ export default function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/health" element={<HealthPage />} />
         <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/" element={<AccountPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AuthProvider>
   )
