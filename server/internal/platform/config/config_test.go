@@ -30,6 +30,9 @@ func TestLoadDefaultsAndValues(t *testing.T) {
 	if cfg.HealthTimeout != 2*time.Second || cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("unexpected timeouts: %#v", cfg)
 	}
+	if cfg.SchedulerInterval != 5*time.Second || cfg.SchedulerBatchSize != 20 || cfg.DispatchInterval != 10*time.Second || cfg.DispatchBatchSize != 100 {
+		t.Fatalf("unexpected worker defaults: %#v", cfg)
+	}
 	if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "http://localhost:5173" {
 		t.Fatalf("unexpected origins: %#v", cfg.CORSAllowedOrigins)
 	}
@@ -78,6 +81,10 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		"WORKER_HTTP_ADDR":     "127.0.0.1:0",
 		"CORS_ALLOWED_ORIGINS": "*",
 		"HEALTH_TIMEOUT":       "not-a-duration",
+		"SCHEDULER_INTERVAL":   "0s",
+		"SCHEDULER_BATCH_SIZE": "0",
+		"DISPATCH_INTERVAL":    "invalid",
+		"DISPATCH_BATCH_SIZE":  "-1",
 	} {
 		values := make(map[string]string, len(base)+1)
 		for baseKey, baseValue := range base {
