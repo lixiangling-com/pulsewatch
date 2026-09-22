@@ -24,6 +24,10 @@ type Config struct {
 	ShutdownTimeout    time.Duration
 	JWTAccessSecret    string
 	JWTIssuer          string
+	SchedulerInterval  time.Duration
+	SchedulerBatchSize int
+	DispatchInterval   time.Duration
+	DispatchBatchSize  int
 }
 
 // Load reads environment variables and validates the values that Day02 uses.
@@ -36,11 +40,15 @@ type lookup func(string) (string, bool)
 
 func load(get lookup) (Config, error) {
 	cfg := Config{
-		Environment:     envOr(get, "APP_ENV", "development"),
-		HTTPAddr:        envOr(get, "HTTP_ADDR", ":8080"),
-		WorkerHTTPAddr:  envOr(get, "WORKER_HTTP_ADDR", "127.0.0.1:8081"),
-		HealthTimeout:   durationOr(get, "HEALTH_TIMEOUT", 2*time.Second),
-		ShutdownTimeout: durationOr(get, "SHUTDOWN_TIMEOUT", 10*time.Second),
+		Environment:        envOr(get, "APP_ENV", "development"),
+		HTTPAddr:           envOr(get, "HTTP_ADDR", ":8080"),
+		WorkerHTTPAddr:     envOr(get, "WORKER_HTTP_ADDR", "127.0.0.1:8081"),
+		HealthTimeout:      durationOr(get, "HEALTH_TIMEOUT", 2*time.Second),
+		ShutdownTimeout:    durationOr(get, "SHUTDOWN_TIMEOUT", 10*time.Second),
+		SchedulerInterval:  durationOr(get, "SCHEDULER_INTERVAL", 5*time.Second),
+		SchedulerBatchSize: integerOr(get, "SCHEDULER_BATCH_SIZE", 20),
+		DispatchInterval:   durationOr(get, "DISPATCH_INTERVAL", 10*time.Second),
+		DispatchBatchSize:  integerOr(get, "DISPATCH_BATCH_SIZE", 100),
 	}
 
 	var ok bool
@@ -78,6 +86,18 @@ func load(get lookup) (Config, error) {
 	if cfg.ShutdownTimeout <= 0 {
 		return Config{}, invalid("SHUTDOWN_TIMEOUT")
 	}
+	if cfg.SchedulerInterval <= 0 {
+		return Config{}, invalid("SCHEDULER_INTERVAL")
+	}
+	if cfg.SchedulerBatchSize <= 0 {
+		return Config{}, invalid("SCHEDULER_BATCH_SIZE")
+	}
+	if cfg.DispatchInterval <= 0 {
+		return Config{}, invalid("DISPATCH_INTERVAL")
+	}
+	if cfg.DispatchBatchSize <= 0 {
+		return Config{}, invalid("DISPATCH_BATCH_SIZE")
+	}
 
 	return cfg, nil
 }
@@ -110,6 +130,18 @@ func durationOr(get lookup, key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	parsed, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func integerOr(get lookup, key string, fallback int) int {
+	value, ok := get(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
 		return 0
 	}

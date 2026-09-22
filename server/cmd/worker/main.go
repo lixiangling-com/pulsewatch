@@ -12,6 +12,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hibiken/asynq"
+	checktask "github.com/lixiangling-com/pulsewatch/server/internal/check"
+	"github.com/lixiangling-com/pulsewatch/server/internal/check/consumer"
+	"github.com/lixiangling-com/pulsewatch/server/internal/check/dispatcher"
+	"github.com/lixiangling-com/pulsewatch/server/internal/check/scheduler"
 	"github.com/lixiangling-com/pulsewatch/server/internal/health"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/config"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/database"
@@ -43,6 +48,27 @@ func run() error {
 	defer postgres.Close()
 	redisClient := queue.New(cfg.RedisAddr, cfg.RedisPassword)
 	defer redisClient.Close()
+	asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
+	defer asynqClient.Close()
+
+	workerServer := asynq.NewServer(asynq.RedisClientOpt{Addr: cfg.RedisAddr, Password: cfg.RedisPassword}, asynq.Config{
+		Concurrency:     10,
+		ShutdownTimeout: cfg.ShutdownTimeout,
+	})
+	consumerProcessor := consumer.NewRepository(postgres)
+	consumerHandler := consumer.New(consumerProcessor, logger)
+	mux := asynq.NewServeMux()
+	mux.HandleFunc(checktask.TypeCheckRun, consumerHandler.HandleCheckRun)
+	if err := workerServer.Start(mux); err != nil {
+		return err
+	}
+	defer workerServer.Shutdown()
+	producerCtx, stopProducers := context.WithCancel(context.Background())
+	defer stopProducers()
+	schedulerLoop := scheduler.New(scheduler.NewRepository(postgres), cfg.SchedulerInterval, cfg.SchedulerBatchSize, logger)
+	dispatcherLoop := dispatcher.New(dispatcher.NewRepository(postgres), asynqClient, cfg.DispatchInterval, cfg.DispatchBatchSize, logger)
+	go schedulerLoop.Run(producerCtx)
+	go dispatcherLoop.Run(producerCtx)
 
 	var draining atomic.Bool
 	checker := health.NewChecker("worker", postgres, redisClient, cfg.HealthTimeout, draining.Load)
@@ -84,13 +110,15 @@ func run() error {
 		return serveErr
 	case <-ctx.Done():
 		draining.Store(true)
-		<-heartbeatDone
 		logger.Info("worker shutdown started")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-		defer cancel()
-		if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
+		if shutdownErr := shutdownWorker(cfg.ShutdownTimeout, shutdownOps{
+			stopProducers:    stopProducers,
+			waitHeartbeat:    func() { <-heartbeatDone },
+			shutdownConsumer: workerServer.Shutdown,
+			shutdownHTTP:     server.Shutdown,
+			closeHTTP:        server.Close,
+		}); shutdownErr != nil {
 			logger.Error("worker graceful shutdown timed out", slog.String("error", "shutdown deadline exceeded"))
-			_ = server.Close()
 			return shutdownErr
 		}
 		logger.Info("worker stopped")
