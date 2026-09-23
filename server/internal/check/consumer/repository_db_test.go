@@ -9,13 +9,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/lixiangling-com/pulsewatch/server/internal/check/checker"
 )
+
+type fixedChecker struct {
+	result checker.Result
+}
+
+func (f fixedChecker) Check(context.Context, checker.Target) checker.Result { return f.result }
 
 func TestProcessPersistsSuccessAndIsIdempotent(t *testing.T) {
 	pool, ctx := newIntegrationPool(t)
 	monitorID, runID := insertMonitorAndRun(t, pool, ctx, "pending", false, 1, 1)
-	repo := NewRepository(pool)
+	repo := NewRepository(pool, fixedChecker{checker.Result{Outcome: checker.OutcomeSuccess, StatusCode: 200, Latency: 17 * time.Millisecond}})
 	if err := repo.Process(ctx, runID); err != nil {
 		t.Fatal(err)
 	}
@@ -23,6 +31,48 @@ func TestProcessPersistsSuccessAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRunState(t, pool, ctx, runID, monitorID, "succeeded", "")
+	var monitorStatus string
+	var statusCode int32
+	var latency pgtype.Int8
+	if err := pool.QueryRow(ctx, `SELECT m.status,r.status_code,r.latency_ms FROM monitors m JOIN check_runs r ON r.monitor_id=m.id WHERE r.id=$1`, runID).Scan(&monitorStatus, &statusCode, &latency); err != nil {
+		t.Fatal(err)
+	}
+	if monitorStatus != "up" || statusCode != 200 || !latency.Valid || latency.Int64 != 17 {
+		t.Fatalf("result not fully persisted: status=%s code=%d latency=%+v", monitorStatus, statusCode, latency)
+	}
+}
+
+func TestProcessPersistsTwoFailureConfirmationAndBlockedDoesNotChangeMonitor(t *testing.T) {
+	pool, ctx := newIntegrationPool(t)
+	monitorID, firstRun := insertMonitorAndRun(t, pool, ctx, "pending", false, 1, 1)
+	failure := fixedChecker{checker.Result{Outcome: checker.OutcomeTargetFailure, ErrorCode: "http_5xx", Summary: "target returned a server error", StatusCode: 500}}
+	if err := NewRepository(pool, failure).Process(ctx, firstRun); err != nil {
+		t.Fatal(err)
+	}
+	assertRunState(t, pool, ctx, firstRun, monitorID, "failed", "http_5xx")
+	var monitorStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM monitors WHERE id=$1`, monitorID).Scan(&monitorStatus); err != nil {
+		t.Fatal(err)
+	}
+	if monitorStatus != "confirming_down" {
+		t.Fatalf("after first failure monitor status=%q", monitorStatus)
+	}
+
+	blockedRun := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO check_runs (id,monitor_id,config_version,status,scheduled_at) VALUES ($1,$2,1,'queued',now()+interval '1 minute')`, blockedRun, monitorID); err != nil {
+		t.Fatal(err)
+	}
+	blocked := fixedChecker{checker.Result{Outcome: checker.OutcomeBlocked, ErrorCode: "blocked_address", Summary: "target resolves to a restricted address"}}
+	if err := NewRepository(pool, blocked).Process(ctx, blockedRun); err != nil {
+		t.Fatal(err)
+	}
+	assertRunState(t, pool, ctx, blockedRun, monitorID, "failed", "blocked_address")
+	if err := pool.QueryRow(ctx, `SELECT status FROM monitors WHERE id=$1`, monitorID).Scan(&monitorStatus); err != nil {
+		t.Fatal(err)
+	}
+	if monitorStatus != "confirming_down" {
+		t.Fatalf("blocked result changed monitor status to %q", monitorStatus)
+	}
 }
 
 func TestProcessCancelsInvalidatedRuns(t *testing.T) {
@@ -42,7 +92,7 @@ func TestProcessCancelsInvalidatedRuns(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pool, ctx := newIntegrationPool(t)
 			monitorID, runID := insertMonitorAndRun(t, pool, ctx, tt.status, tt.deleted, tt.monitorVersion, tt.runVersion)
-			if err := NewRepository(pool).Process(ctx, runID); err != nil {
+			if err := NewRepository(pool, fixedChecker{checker.Result{Outcome: checker.OutcomeSuccess, StatusCode: 200}}).Process(ctx, runID); err != nil {
 				t.Fatal(err)
 			}
 			assertRunState(t, pool, ctx, runID, monitorID, "cancelled", tt.wantCode)

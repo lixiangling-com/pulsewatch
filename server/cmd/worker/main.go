@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
 	checktask "github.com/lixiangling-com/pulsewatch/server/internal/check"
+	"github.com/lixiangling-com/pulsewatch/server/internal/check/checker"
 	"github.com/lixiangling-com/pulsewatch/server/internal/check/consumer"
 	"github.com/lixiangling-com/pulsewatch/server/internal/check/dispatcher"
 	"github.com/lixiangling-com/pulsewatch/server/internal/check/scheduler"
@@ -55,7 +56,7 @@ func run() error {
 		Concurrency:     10,
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	})
-	consumerProcessor := consumer.NewRepository(postgres)
+	consumerProcessor := consumer.NewRepository(postgres, checker.NewHTTPChecker(cfg.IsDevelopment()))
 	consumerHandler := consumer.New(consumerProcessor, logger)
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(checktask.TypeCheckRun, consumerHandler.HandleCheckRun)
