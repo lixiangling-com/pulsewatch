@@ -69,6 +69,30 @@ func (q *Queries) CreateIncident(ctx context.Context, arg CreateIncidentParams) 
 	return i, err
 }
 
+const getOpenIncidentForUpdate = `-- name: GetOpenIncidentForUpdate :one
+SELECT id, monitor_id, opened_at, resolved_at, error_code, error_summary,
+    created_at, updated_at
+FROM incidents
+WHERE monitor_id = $1 AND resolved_at IS NULL
+FOR UPDATE
+`
+
+func (q *Queries) GetOpenIncidentForUpdate(ctx context.Context, monitorID pgtype.UUID) (Incident, error) {
+	row := q.db.QueryRow(ctx, getOpenIncidentForUpdate, monitorID)
+	var i Incident
+	err := row.Scan(
+		&i.ID,
+		&i.MonitorID,
+		&i.OpenedAt,
+		&i.ResolvedAt,
+		&i.ErrorCode,
+		&i.ErrorSummary,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listIncidentsByMonitorAndUser = `-- name: ListIncidentsByMonitorAndUser :many
 SELECT i.id, i.monitor_id, i.opened_at, i.resolved_at, i.error_code,
     i.error_summary, i.created_at, i.updated_at
@@ -120,4 +144,23 @@ func (q *Queries) ListIncidentsByMonitorAndUser(ctx context.Context, arg ListInc
 		return nil, err
 	}
 	return items, nil
+}
+
+const resolveIncident = `-- name: ResolveIncident :execrows
+UPDATE incidents
+SET resolved_at = $1, updated_at = now()
+WHERE id = $2 AND resolved_at IS NULL
+`
+
+type ResolveIncidentParams struct {
+	ResolvedAt pgtype.Timestamptz `json:"resolved_at"`
+	ID         pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) ResolveIncident(ctx context.Context, arg ResolveIncidentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resolveIncident, arg.ResolvedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

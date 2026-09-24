@@ -75,6 +75,70 @@ func TestProcessPersistsTwoFailureConfirmationAndBlockedDoesNotChangeMonitor(t *
 	}
 }
 
+func TestProcessOpensAndResolvesIncidentWithDeduplicatedNotifications(t *testing.T) {
+	pool, ctx := newIntegrationPool(t)
+	monitorID, firstRun := insertMonitorAndRun(t, pool, ctx, "up", false, 1, 1)
+	failure := NewRepository(pool, fixedChecker{checker.Result{Outcome: checker.OutcomeTargetFailure, ErrorCode: "http_5xx", Summary: "server error", StatusCode: 500}})
+	if err := failure.Process(ctx, firstRun); err != nil {
+		t.Fatal(err)
+	}
+	secondRun := insertRun(t, pool, ctx, monitorID)
+	if err := failure.Process(ctx, secondRun); err != nil {
+		t.Fatal(err)
+	}
+	var incidentID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM incidents WHERE monitor_id=$1 AND resolved_at IS NULL`, monitorID).Scan(&incidentID); err != nil {
+		t.Fatal(err)
+	}
+	var openedCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE incident_id=$1 AND type='incident_opened'`, incidentID).Scan(&openedCount); err != nil {
+		t.Fatal(err)
+	}
+	if openedCount != 1 {
+		t.Fatalf("opened notifications=%d, want 1", openedCount)
+	}
+	// Reprocessing the completed check run must not duplicate either record.
+	if err := failure.Process(ctx, secondRun); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM incidents WHERE monitor_id=$1`, monitorID).Scan(&openedCount); err != nil {
+		t.Fatal(err)
+	}
+	if openedCount != 1 {
+		t.Fatalf("incidents=%d, want 1", openedCount)
+	}
+	success := NewRepository(pool, fixedChecker{checker.Result{Outcome: checker.OutcomeSuccess, StatusCode: 200}})
+	for i := 0; i < 2; i++ {
+		run := insertRun(t, pool, ctx, monitorID)
+		if err := success.Process(ctx, run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var resolved bool
+	if err := pool.QueryRow(ctx, `SELECT resolved_at IS NOT NULL FROM incidents WHERE id=$1`, incidentID).Scan(&resolved); err != nil {
+		t.Fatal(err)
+	}
+	if !resolved {
+		t.Fatal("incident was not resolved")
+	}
+	var resolvedCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE incident_id=$1 AND type='incident_resolved'`, incidentID).Scan(&resolvedCount); err != nil {
+		t.Fatal(err)
+	}
+	if resolvedCount != 1 {
+		t.Fatalf("resolved notifications=%d, want 1", resolvedCount)
+	}
+}
+
+func insertRun(t *testing.T, pool *pgxpool.Pool, ctx context.Context, monitorID uuid.UUID) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO check_runs (id,monitor_id,config_version,status,scheduled_at) VALUES ($1,$2,1,'queued',now())`, id, monitorID); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func TestProcessCancelsInvalidatedRuns(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -148,7 +212,7 @@ func newIntegrationPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if err := admin.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
-	schema := "day08_consumer_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	schema := "day10_consumer_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	if _, err := admin.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
 		t.Fatal(err)
 	}

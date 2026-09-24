@@ -28,6 +28,8 @@ type Config struct {
 	SchedulerBatchSize int
 	DispatchInterval   time.Duration
 	DispatchBatchSize  int
+	SMTPAddr           string
+	SMTPFrom           string
 }
 
 // Load reads environment variables and validates the values that Day02 uses.
@@ -49,6 +51,8 @@ func load(get lookup) (Config, error) {
 		SchedulerBatchSize: integerOr(get, "SCHEDULER_BATCH_SIZE", 20),
 		DispatchInterval:   durationOr(get, "DISPATCH_INTERVAL", 10*time.Second),
 		DispatchBatchSize:  integerOr(get, "DISPATCH_BATCH_SIZE", 100),
+		SMTPAddr:           envOr(get, "SMTP_ADDR", "127.0.0.1:1025"),
+		SMTPFrom:           envOr(get, "SMTP_FROM", "alerts@pulsewatch.local"),
 	}
 
 	var ok bool
@@ -76,6 +80,12 @@ func load(get lookup) (Config, error) {
 	}
 	if err := validateAddress(cfg.WorkerHTTPAddr, "WORKER_HTTP_ADDR"); err != nil {
 		return Config{}, err
+	}
+	if err := validateAddress(cfg.SMTPAddr, "SMTP_ADDR"); err != nil {
+		return Config{}, err
+	}
+	if strings.ContainsAny(cfg.SMTPFrom, "\r\n") || !strings.Contains(cfg.SMTPFrom, "@") {
+		return Config{}, invalid("SMTP_FROM")
 	}
 	if err := validateOrigins(cfg.CORSAllowedOrigins); err != nil {
 		return Config{}, err

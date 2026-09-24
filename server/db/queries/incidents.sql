@@ -4,6 +4,18 @@ VALUES (sqlc.arg(id), sqlc.arg(monitor_id), sqlc.arg(opened_at), sqlc.arg(error_
 RETURNING id, monitor_id, opened_at, resolved_at, error_code, error_summary,
     created_at, updated_at;
 
+-- name: GetOpenIncidentForUpdate :one
+SELECT id, monitor_id, opened_at, resolved_at, error_code, error_summary,
+    created_at, updated_at
+FROM incidents
+WHERE monitor_id = sqlc.arg(monitor_id) AND resolved_at IS NULL
+FOR UPDATE;
+
+-- name: ResolveIncident :execrows
+UPDATE incidents
+SET resolved_at = sqlc.arg(resolved_at), updated_at = now()
+WHERE id = sqlc.arg(id) AND resolved_at IS NULL;
+
 -- name: CountIncidentsByMonitorAndUser :one
 SELECT count(*)::bigint
 FROM incidents i

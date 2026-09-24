@@ -79,6 +79,64 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 	return i, err
 }
 
+const getNotificationForEmail = `-- name: GetNotificationForEmail :one
+SELECT n.id, n.user_id, n.monitor_id, n.incident_id, n.type, n.dedupe_key,
+    n.title, n.body, n.read_at, n.status, n.queued_at, n.sent_at,
+    n.error_code, n.error_summary, n.created_at, n.updated_at, u.email,
+    m.name AS monitor_name
+FROM notifications n
+JOIN users u ON u.id = n.user_id
+JOIN monitors m ON m.id = n.monitor_id
+WHERE n.id = $1
+`
+
+type GetNotificationForEmailRow struct {
+	ID           pgtype.UUID        `json:"id"`
+	UserID       pgtype.UUID        `json:"user_id"`
+	MonitorID    pgtype.UUID        `json:"monitor_id"`
+	IncidentID   pgtype.UUID        `json:"incident_id"`
+	Type         string             `json:"type"`
+	DedupeKey    string             `json:"dedupe_key"`
+	Title        string             `json:"title"`
+	Body         string             `json:"body"`
+	ReadAt       pgtype.Timestamptz `json:"read_at"`
+	Status       string             `json:"status"`
+	QueuedAt     pgtype.Timestamptz `json:"queued_at"`
+	SentAt       pgtype.Timestamptz `json:"sent_at"`
+	ErrorCode    pgtype.Text        `json:"error_code"`
+	ErrorSummary pgtype.Text        `json:"error_summary"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	Email        string             `json:"email"`
+	MonitorName  string             `json:"monitor_name"`
+}
+
+func (q *Queries) GetNotificationForEmail(ctx context.Context, id pgtype.UUID) (GetNotificationForEmailRow, error) {
+	row := q.db.QueryRow(ctx, getNotificationForEmail, id)
+	var i GetNotificationForEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.MonitorID,
+		&i.IncidentID,
+		&i.Type,
+		&i.DedupeKey,
+		&i.Title,
+		&i.Body,
+		&i.ReadAt,
+		&i.Status,
+		&i.QueuedAt,
+		&i.SentAt,
+		&i.ErrorCode,
+		&i.ErrorSummary,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.MonitorName,
+	)
+	return i, err
+}
+
 const listNotificationsByUser = `-- name: ListNotificationsByUser :many
 SELECT id, user_id, monitor_id, incident_id, type, dedupe_key, title, body,
     read_at, status, queued_at, sent_at, error_code, error_summary,
@@ -132,6 +190,69 @@ func (q *Queries) ListNotificationsByUser(ctx context.Context, arg ListNotificat
 	return items, nil
 }
 
+const listPendingEmailNotificationIDs = `-- name: ListPendingEmailNotificationIDs :many
+SELECT id
+FROM notifications
+WHERE status IN ('pending', 'failed') AND queued_at IS NULL
+ORDER BY created_at, id
+LIMIT $1
+`
+
+func (q *Queries) ListPendingEmailNotificationIDs(ctx context.Context, batchSize int32) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listPendingEmailNotificationIDs, batchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markNotificationFailed = `-- name: MarkNotificationFailed :execrows
+UPDATE notifications
+SET status = 'failed', queued_at = NULL,
+    error_code = $1, error_summary = $2, updated_at = now()
+WHERE id = $3 AND status <> 'sent'
+`
+
+type MarkNotificationFailedParams struct {
+	ErrorCode    pgtype.Text `json:"error_code"`
+	ErrorSummary pgtype.Text `json:"error_summary"`
+	ID           pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) MarkNotificationFailed(ctx context.Context, arg MarkNotificationFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markNotificationFailed, arg.ErrorCode, arg.ErrorSummary, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markNotificationQueued = `-- name: MarkNotificationQueued :execrows
+UPDATE notifications
+SET status = 'queued', queued_at = COALESCE(queued_at, now()), updated_at = now()
+WHERE id = $1 AND status = 'pending' AND error_code IS NULL
+`
+
+func (q *Queries) MarkNotificationQueued(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markNotificationQueued, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markNotificationReadByUser = `-- name: MarkNotificationReadByUser :one
 UPDATE notifications
 SET read_at = COALESCE(read_at, now()), updated_at = now()
@@ -168,4 +289,32 @@ func (q *Queries) MarkNotificationReadByUser(ctx context.Context, arg MarkNotifi
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const markNotificationSent = `-- name: MarkNotificationSent :execrows
+UPDATE notifications
+SET status = 'sent', sent_at = now(), error_code = NULL, error_summary = NULL, updated_at = now()
+WHERE id = $1 AND status <> 'sent'
+`
+
+func (q *Queries) MarkNotificationSent(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markNotificationSent, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const prepareNotificationRetry = `-- name: PrepareNotificationRetry :execrows
+UPDATE notifications
+SET status = 'pending', error_code = NULL, error_summary = NULL, updated_at = now()
+WHERE id = $1 AND status = 'failed' AND queued_at IS NULL
+`
+
+func (q *Queries) PrepareNotificationRetry(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, prepareNotificationRetry, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
