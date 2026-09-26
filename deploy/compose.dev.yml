@@ -46,6 +46,20 @@ services:
       timeout: 3s
       retries: 10
 
+  mocktarget:
+    image: golang:1.26-alpine
+    working_dir: /src
+    command: ["go", "run", "./cmd/mocktarget"]
+    volumes:
+      - ../server:/src:ro
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   pulsewatch_pgdata:
   pulsewatch_redisdata:

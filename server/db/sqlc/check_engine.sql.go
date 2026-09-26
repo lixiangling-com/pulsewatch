@@ -62,9 +62,9 @@ func (q *Queries) CompleteCheckRun(ctx context.Context, arg CompleteCheckRunPara
 }
 
 const getCheckRunForProcessing = `-- name: GetCheckRunForProcessing :one
-SELECT r.id, r.status, r.config_version,
+SELECT r.id, r.monitor_id, r.status, r.config_version,
        m.status AS monitor_status, m.config_version AS monitor_config_version,
-       m.deleted_at AS monitor_deleted_at
+       m.deleted_at AS monitor_deleted_at, m.url, m.expected_status
 FROM check_runs r
 JOIN monitors m ON m.id = r.monitor_id
 WHERE r.id = $1
@@ -73,11 +73,14 @@ FOR UPDATE OF r, m
 
 type GetCheckRunForProcessingRow struct {
 	ID                   pgtype.UUID        `json:"id"`
+	MonitorID            pgtype.UUID        `json:"monitor_id"`
 	Status               string             `json:"status"`
 	ConfigVersion        int32              `json:"config_version"`
 	MonitorStatus        string             `json:"monitor_status"`
 	MonitorConfigVersion int32              `json:"monitor_config_version"`
 	MonitorDeletedAt     pgtype.Timestamptz `json:"monitor_deleted_at"`
+	Url                  string             `json:"url"`
+	ExpectedStatus       int32              `json:"expected_status"`
 }
 
 func (q *Queries) GetCheckRunForProcessing(ctx context.Context, id pgtype.UUID) (GetCheckRunForProcessingRow, error) {
@@ -85,11 +88,14 @@ func (q *Queries) GetCheckRunForProcessing(ctx context.Context, id pgtype.UUID) 
 	var i GetCheckRunForProcessingRow
 	err := row.Scan(
 		&i.ID,
+		&i.MonitorID,
 		&i.Status,
 		&i.ConfigVersion,
 		&i.MonitorStatus,
 		&i.MonitorConfigVersion,
 		&i.MonitorDeletedAt,
+		&i.Url,
+		&i.ExpectedStatus,
 	)
 	return i, err
 }
@@ -187,6 +193,72 @@ WHERE id = $1 AND status = 'queued'
 
 func (q *Queries) MarkCheckRunRunning(ctx context.Context, id pgtype.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, markCheckRunRunning, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const persistCheckRunResult = `-- name: PersistCheckRunResult :execrows
+UPDATE check_runs
+SET status = $1, finished_at = now(), status_code = $2,
+    latency_ms = $3, error_code = $4,
+    error_summary = $5
+WHERE id = $6 AND status = 'running'
+`
+
+type PersistCheckRunResultParams struct {
+	Status       string      `json:"status"`
+	StatusCode   pgtype.Int4 `json:"status_code"`
+	LatencyMs    pgtype.Int8 `json:"latency_ms"`
+	ErrorCode    pgtype.Text `json:"error_code"`
+	ErrorSummary pgtype.Text `json:"error_summary"`
+	ID           pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) PersistCheckRunResult(ctx context.Context, arg PersistCheckRunResultParams) (int64, error) {
+	result, err := q.db.Exec(ctx, persistCheckRunResult,
+		arg.Status,
+		arg.StatusCode,
+		arg.LatencyMs,
+		arg.ErrorCode,
+		arg.ErrorSummary,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const resetCheckRunQueued = `-- name: ResetCheckRunQueued :execrows
+UPDATE check_runs SET status = 'queued'
+WHERE id = $1 AND status = 'running'
+`
+
+func (q *Queries) ResetCheckRunQueued(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, resetCheckRunQueued, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateMonitorCheckState = `-- name: UpdateMonitorCheckState :execrows
+UPDATE monitors
+SET status = $1, last_checked_at = now(),
+    last_latency_ms = $2, updated_at = now()
+WHERE id = $3 AND deleted_at IS NULL AND status <> 'paused'
+`
+
+type UpdateMonitorCheckStateParams struct {
+	Status    string      `json:"status"`
+	LatencyMs pgtype.Int8 `json:"latency_ms"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateMonitorCheckState(ctx context.Context, arg UpdateMonitorCheckStateParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateMonitorCheckState, arg.Status, arg.LatencyMs, arg.ID)
 	if err != nil {
 		return 0, err
 	}
