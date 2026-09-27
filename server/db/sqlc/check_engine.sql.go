@@ -100,6 +100,24 @@ func (q *Queries) GetCheckRunForProcessing(ctx context.Context, id pgtype.UUID) 
 	return i, err
 }
 
+const getMonitorNotificationDetails = `-- name: GetMonitorNotificationDetails :one
+SELECT user_id, name
+FROM monitors
+WHERE id = $1
+`
+
+type GetMonitorNotificationDetailsRow struct {
+	UserID pgtype.UUID `json:"user_id"`
+	Name   string      `json:"name"`
+}
+
+func (q *Queries) GetMonitorNotificationDetails(ctx context.Context, id pgtype.UUID) (GetMonitorNotificationDetailsRow, error) {
+	row := q.db.QueryRow(ctx, getMonitorNotificationDetails, id)
+	var i GetMonitorNotificationDetailsRow
+	err := row.Scan(&i.UserID, &i.Name)
+	return i, err
+}
+
 const listDueMonitorsForUpdate = `-- name: ListDueMonitorsForUpdate :many
 SELECT id, config_version, interval_minutes, next_check_at
 FROM monitors

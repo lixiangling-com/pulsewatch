@@ -33,6 +33,9 @@ func TestLoadDefaultsAndValues(t *testing.T) {
 	if cfg.SchedulerInterval != 5*time.Second || cfg.SchedulerBatchSize != 20 || cfg.DispatchInterval != 10*time.Second || cfg.DispatchBatchSize != 100 {
 		t.Fatalf("unexpected worker defaults: %#v", cfg)
 	}
+	if cfg.SMTPAddr != "127.0.0.1:1025" || cfg.SMTPFrom != "alerts@pulsewatch.local" {
+		t.Fatalf("unexpected SMTP defaults: %#v", cfg)
+	}
 	if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "http://localhost:5173" {
 		t.Fatalf("unexpected origins: %#v", cfg.CORSAllowedOrigins)
 	}
@@ -85,6 +88,8 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		"SCHEDULER_BATCH_SIZE": "0",
 		"DISPATCH_INTERVAL":    "invalid",
 		"DISPATCH_BATCH_SIZE":  "-1",
+		"SMTP_ADDR":            "invalid",
+		"SMTP_FROM":            "bad-address",
 	} {
 		values := make(map[string]string, len(base)+1)
 		for baseKey, baseValue := range base {

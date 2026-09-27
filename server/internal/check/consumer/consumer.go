@@ -169,8 +169,82 @@ func (r *Repository) persistResult(ctx context.Context, id pgtype.UUID, result c
 		if err != nil {
 			return err
 		}
+		if run.MonitorStatus == "confirming_down" && transition.State == "down" {
+			if err := openIncident(ctx, queries, run, result); err != nil {
+				return err
+			}
+		}
+		if run.MonitorStatus == "confirming_up" && transition.State == "up" {
+			if err := resolveIncident(ctx, queries, run); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit(ctx)
+}
+
+func openIncident(ctx context.Context, queries *sqlc.Queries, run sqlc.GetCheckRunForProcessingRow, result checker.Result) error {
+	incident, err := queries.GetOpenIncidentForUpdate(ctx, run.MonitorID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	monitor, err := queries.GetMonitorNotificationDetails(ctx, run.MonitorID)
+	if err != nil {
+		return err
+	}
+	code := result.ErrorCode
+	if code == "" {
+		code = "target_failure"
+	}
+	summary := pgtype.Text{}
+	if result.Summary != "" {
+		summary = pgtype.Text{String: result.Summary, Valid: true}
+	}
+	incident, err = queries.CreateIncident(ctx, sqlc.CreateIncidentParams{
+		ID: pgtype.UUID{Bytes: uuid.New(), Valid: true}, MonitorID: run.MonitorID,
+		OpenedAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}, ErrorCode: code, ErrorSummary: summary,
+	})
+	if err != nil {
+		return err
+	}
+	body := "监控“" + monitor.Name + "”连续检查失败，已确认故障。"
+	if result.Summary != "" {
+		body += " 最近错误：" + result.Summary
+	}
+	_, err = queries.CreateNotification(ctx, sqlc.CreateNotificationParams{
+		ID: pgtype.UUID{Bytes: uuid.New(), Valid: true}, UserID: monitor.UserID,
+		MonitorID: run.MonitorID, IncidentID: incident.ID, Type: "incident_opened",
+		DedupeKey: "incident:" + uuid.UUID(incident.ID.Bytes).String() + ":opened",
+		Title:     "监控故障：" + monitor.Name, Body: body,
+	})
+	return err
+}
+
+func resolveIncident(ctx context.Context, queries *sqlc.Queries, run sqlc.GetCheckRunForProcessingRow) error {
+	incident, err := queries.GetOpenIncidentForUpdate(ctx, run.MonitorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := queries.ResolveIncident(ctx, sqlc.ResolveIncidentParams{ResolvedAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}, ID: incident.ID}); err != nil {
+		return err
+	}
+	monitor, err := queries.GetMonitorNotificationDetails(ctx, run.MonitorID)
+	if err != nil {
+		return err
+	}
+	_, err = queries.CreateNotification(ctx, sqlc.CreateNotificationParams{
+		ID: pgtype.UUID{Bytes: uuid.New(), Valid: true}, UserID: monitor.UserID,
+		MonitorID: run.MonitorID, IncidentID: incident.ID, Type: "incident_resolved",
+		DedupeKey: "incident:" + uuid.UUID(incident.ID.Bytes).String() + ":resolved",
+		Title:     "监控已恢复：" + monitor.Name, Body: "监控“" + monitor.Name + "”连续两次检查成功，故障已恢复。",
+	})
+	return err
 }
 
 func nullableInt(value int) pgtype.Int4 {

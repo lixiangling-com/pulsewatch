@@ -19,6 +19,7 @@ import (
 	"github.com/lixiangling-com/pulsewatch/server/internal/check/dispatcher"
 	"github.com/lixiangling-com/pulsewatch/server/internal/check/scheduler"
 	"github.com/lixiangling-com/pulsewatch/server/internal/health"
+	"github.com/lixiangling-com/pulsewatch/server/internal/notification"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/config"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/database"
 	"github.com/lixiangling-com/pulsewatch/server/internal/platform/httpx"
@@ -60,6 +61,8 @@ func run() error {
 	consumerHandler := consumer.New(consumerProcessor, logger)
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(checktask.TypeCheckRun, consumerHandler.HandleCheckRun)
+	mailConsumer := notification.NewConsumer(postgres, notification.SMTPSender{Addr: cfg.SMTPAddr, From: cfg.SMTPFrom}, logger)
+	mux.HandleFunc(notification.TypeMailSend, mailConsumer.HandleMail)
 	if err := workerServer.Start(mux); err != nil {
 		return err
 	}
@@ -68,8 +71,10 @@ func run() error {
 	defer stopProducers()
 	schedulerLoop := scheduler.New(scheduler.NewRepository(postgres), cfg.SchedulerInterval, cfg.SchedulerBatchSize, logger)
 	dispatcherLoop := dispatcher.New(dispatcher.NewRepository(postgres), asynqClient, cfg.DispatchInterval, cfg.DispatchBatchSize, logger)
+	notificationDispatcher := notification.NewDispatcher(notification.NewStore(postgres), asynqClient, cfg.DispatchInterval, cfg.DispatchBatchSize, logger)
 	go schedulerLoop.Run(producerCtx)
 	go dispatcherLoop.Run(producerCtx)
+	go notificationDispatcher.Run(producerCtx)
 
 	var draining atomic.Bool
 	checker := health.NewChecker("worker", postgres, redisClient, cfg.HealthTimeout, draining.Load)

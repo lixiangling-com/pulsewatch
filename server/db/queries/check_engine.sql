@@ -65,3 +65,8 @@ UPDATE monitors
 SET status = sqlc.arg(status), last_checked_at = now(),
     last_latency_ms = sqlc.arg(latency_ms), updated_at = now()
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL AND status <> 'paused';
+
+-- name: GetMonitorNotificationDetails :one
+SELECT user_id, name
+FROM monitors
+WHERE id = sqlc.arg(id);
